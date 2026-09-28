@@ -41,7 +41,10 @@ export default function Landing() {
     <>
       {/* ────── NAVBAR ────── */}
       <nav>
-        <a href="#inicio" className="nav-logo">MAGMA<span>.</span></a>
+        <a href="#inicio" className="nav-logo" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img src="/logo.jpeg" alt="Magma Studios Logo" style={{ height: '40px', width: 'auto', borderRadius: '50%' }} />
+          MAGMA<span>.</span>
+        </a>
         <div className="nav-links">
           <a href="#inicio">Inicio</a>
           <a href="#nosotros">Nosotros</a>
