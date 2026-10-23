@@ -3,10 +3,19 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+
+// Only initialize Supabase if both URL and Key are present
+let supabase = null;
+if (supabaseUrl && supabaseKey) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseKey);
+  } catch (err) {
+    console.warn('Error inicializando cliente de Supabase:', err);
+  }
+}
 
 // Default texts to use as fallback
-const defaultContent = {
+export const defaultContent = {
   // Cinematic / Hero
   cinematic_stages: [
     { title: 'MAGMA STUDIOS', subtitle: 'Desarrollo Web Premium', desc: 'Las ideas nacen en la superficie.' },
@@ -54,7 +63,7 @@ const defaultContent = {
 
   // Contacto
   contact_title1: 'Encendamos la',
-  contact_title2: 'chispa', // Replaced "Hagamos que erupcione"
+  contact_title2: 'chispa',
   contact_desc: '¿Listo para llevar tu negocio al siguiente nivel? Escribinos y en menos de 24 hs te respondemos con ideas para tu proyecto.',
   contact_instagram1: 'instagram_socio1',
   contact_instagram2: 'instagram_socio2',
@@ -69,43 +78,158 @@ export const ContentProvider = ({ children }) => {
   const [content, setContent] = useState(defaultContent);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchContent();
-  }, []);
-
   const fetchContent = async () => {
     try {
-      if (supabase) {
-        // Fetch from Supabase
-        const { data, error } = await supabase.from('site_content').select('*').single();
-        if (data) {
-          setContent({ ...defaultContent, ...data.content });
+      let serverData = null;
+
+      // 1. Intentar cargar desde la API del servidor (/api/content)
+      try {
+        const res = await fetch('/api/content');
+        if (res.ok) {
+          const apiJson = await res.json();
+          if (apiJson && Object.keys(apiJson).length > 0 && !apiJson.error) {
+            serverData = apiJson;
+          }
         }
-      } else {
-        // Fallback to localStorage if no Supabase keys
-        const localData = localStorage.getItem('magma_content');
-        if (localData) {
-          setContent({ ...defaultContent, ...JSON.parse(localData) });
+      } catch {
+        // Fallback a archivo estático public/data/content.json si /api falla
+        try {
+          const staticRes = await fetch('/data/content.json');
+          if (staticRes.ok) {
+            const staticJson = await staticRes.json();
+            if (staticJson && Object.keys(staticJson).length > 0) {
+              serverData = staticJson;
+            }
+          }
+        } catch {
+          // No hay datos estáticos disponibles
+        }
+      }
+
+      // 2. Si Supabase está disponible, intentar consultar de forma protegida
+      let supaData = null;
+      if (supabase) {
+        try {
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Supabase timeout')), 3000)
+          );
+          const fetchPromise = supabase.from('site_content').select('*').single();
+          const { data, error } = await Promise.race([fetchPromise, timeoutPromise]);
+          if (!error && data && data.content && Object.keys(data.content).length > 0) {
+            supaData = data.content;
+          }
+        } catch (supaErr) {
+          console.warn('Supabase no disponible (usando servidor local/almacenamiento):', supaErr.message || supaErr);
+        }
+      }
+
+      // 3. Revisar localStorage por si hay cambios en este navegador
+      let localData = null;
+      try {
+        const savedLocal = localStorage.getItem('magma_content');
+        if (savedLocal) {
+          localData = JSON.parse(savedLocal);
+        }
+      } catch (localErr) {
+        console.warn('Error leyendo localStorage:', localErr);
+      }
+
+      // Consolidar fuentes de datos respetando orden de precedencia:
+      // defaultContent -> serverData -> supaData -> localData
+      const merged = {
+        ...defaultContent,
+        ...(serverData || {}),
+        ...(supaData || {}),
+        ...(localData || {})
+      };
+
+      setContent(merged);
+
+      // Si localStorage tenía datos que el servidor aún no tenía, sincronizarlos con el servidor
+      if (localData && (!serverData || Object.keys(serverData).length === 0)) {
+        try {
+          await fetch('/api/content', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(merged)
+          });
+        } catch {
+          // No se pudo sincronizar en este intento
         }
       }
     } catch (err) {
       console.error('Error fetching content:', err);
+      // Fallback final: intentar recuperar de localStorage
+      try {
+        const fallbackLocal = localStorage.getItem('magma_content');
+        if (fallbackLocal) {
+          setContent({ ...defaultContent, ...JSON.parse(fallbackLocal) });
+        }
+      } catch {
+        // Fallback no disponible
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchContent();
+  }, []);
+
   const updateContent = async (newContent) => {
     const updated = { ...content, ...newContent };
     setContent(updated);
-    
-    if (supabase) {
-      // Upsert to Supabase
-      await supabase.from('site_content').upsert({ id: 1, content: updated });
-    } else {
-      // Fallback to localStorage
+
+    // 1. Guardar en localStorage siempre (garantiza persistencia inmediata en el navegador)
+    let localSaved = false;
+    try {
       localStorage.setItem('magma_content', JSON.stringify(updated));
+      localSaved = true;
+    } catch (e) {
+      console.warn('No se pudo guardar en localStorage:', e);
     }
+
+    // 2. Guardar en el servidor (/api/content) para persistencia en disco
+    let serverSaved = false;
+    try {
+      const res = await fetch('/api/content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated)
+      });
+      if (res.ok) {
+        serverSaved = true;
+      }
+    } catch (err) {
+      console.warn('No se pudo guardar en /api/content:', err);
+    }
+
+    // 3. Si Supabase está disponible, guardar también en Supabase
+    let supabaseSaved = false;
+    if (supabase) {
+      try {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Supabase timeout')), 4000)
+        );
+        const upsertPromise = supabase.from('site_content').upsert({ id: 1, content: updated });
+        const { error } = await Promise.race([upsertPromise, timeoutPromise]);
+        if (!error) {
+          supabaseSaved = true;
+        } else {
+          console.warn('Error al guardar en Supabase:', error);
+        }
+      } catch (supaErr) {
+        console.warn('Supabase no disponible al guardar:', supaErr.message || supaErr);
+      }
+    }
+
+    return {
+      success: true,
+      serverSaved,
+      supabaseSaved,
+      localSaved
+    };
   };
 
   return (

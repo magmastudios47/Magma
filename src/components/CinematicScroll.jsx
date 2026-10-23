@@ -19,13 +19,14 @@ function isMobile() {
 
 export default function CinematicScroll() {
   const { content } = useContent();
+  const stages = content?.cinematic_stages || [];
 
   const JOURNEY_STAGES = [
-    { start: -0.10, end: 0.20, ...content.cinematic_stages[0] },
-    { start: 0.18, end: 0.38, ...content.cinematic_stages[1] },
-    { start: 0.36, end: 0.56, ...content.cinematic_stages[2] },
-    { start: 0.54, end: 0.76, ...content.cinematic_stages[3] },
-    { start: 0.74, end: 0.95, ...content.cinematic_stages[4] },
+    { start: -0.10, end: 0.20, ...(stages[0] || {}) },
+    { start: 0.18, end: 0.38, ...(stages[1] || {}) },
+    { start: 0.36, end: 0.56, ...(stages[2] || {}) },
+    { start: 0.54, end: 0.76, ...(stages[3] || {}) },
+    { start: 0.74, end: 0.95, ...(stages[4] || {}) },
   ];
 
   const sectionRef = useRef(null);

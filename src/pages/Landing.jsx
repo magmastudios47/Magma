@@ -83,7 +83,7 @@ export default function Landing() {
 
             <motion.div className="about-grid" variants={stagger}>
               <motion.div className="about-body glass" variants={fadeUp}>
-                <p dangerouslySetInnerHTML={{ __html: content.about_p1.replace('Magma Studios', '<strong>Magma Studios</strong>') }} />
+                <p dangerouslySetInnerHTML={{ __html: (content.about_p1 || '').replace('Magma Studios', '<strong>Magma Studios</strong>') }} />
                 <p>{content.about_p2}</p>
                 <p>{content.about_p3}</p>
               </motion.div>
@@ -122,7 +122,7 @@ export default function Landing() {
             </motion.div>
 
             <motion.div className="services-grid" variants={stagger}>
-              {content.services.map((service, i) => (
+              {(content.services || []).map((service, i) => (
                 <motion.div key={i} className="service-card glass" variants={fadeUp}>
                   {iconMap[service.icon]}
                   <h3 className="service-title">{service.title}</h3>
